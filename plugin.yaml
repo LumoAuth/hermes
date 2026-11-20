@@ -1,0 +1,22 @@
+manifest_version: 2
+api_version: 1
+name: lumoauth
+version: 0.1.0
+label: LumoAuth Guard
+description: >-
+  LumoAuth Guard checks every tool call outside the model: it allows it, asks a person, or blocks it.
+  Policy lives in LumoAuth. Run `hermes lumoauth setup` after enabling.
+author: LumoAuth LLC
+license: MIT
+homepage: https://github.com/lumoauth/hermes
+tags: [security, approvals, policy, audit]
+provides_tools: []
+provides_hooks:
+  - pre_tool_call
+  - post_tool_call
+  - post_approval_response
+  - post_api_request
+  - on_session_start
+python_dependencies:
+  - "cryptography>=42,<52"
+  - "httpx>=0.27,<1"

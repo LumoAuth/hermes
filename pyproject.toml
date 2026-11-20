@@ -1,0 +1,80 @@
+[build-system]
+requires = ["hatchling>=1.24,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lumoauth-hermes"
+version = "0.1.0"
+description = "LumoAuth Guard for Hermes Agent: every tool call is allowed, sent to a person for approval, or blocked, outside the model."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "LumoAuth LLC" }]
+keywords = ["hermes", "hermes-agent", "lumoauth", "agent", "security", "approvals", "dpop"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Operating System :: POSIX",
+  "Operating System :: MacOS",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Security",
+]
+# Only what Hermes Agent already ships.
+dependencies = [
+  "cryptography>=42,<52",
+  "httpx>=0.27,<1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10", "ruff>=0.6,<1", "ruamel.yaml>=0.18,<0.20"]
+
+[project.urls]
+Homepage = "https://lumoauth.dev"
+Repository = "https://github.com/lumoauth/hermes"
+
+[project.entry-points."hermes_agent.plugins"]
+lumoauth = "lumoauth_hermes:register"
+
+[project.scripts]
+lumoauth-hermes = "lumoauth_hermes.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lumoauth_hermes"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "src/lumoauth_hermes",
+  "tests",
+  "scripts",
+  "plugin.yaml",
+  "__init__.py",
+  "README.md",
+  "CHANGELOG.md",
+  "LICENSE",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-p no:cacheprovider --import-mode=importlib"
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+src = ["src", "tests"]
+extend-exclude = ["src/lumoauth_hermes/contract"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S"]
+ignore = ["S101", "S311", "UP037"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S", "B"]
+"e2e/*" = ["S", "B"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["lumoauth_hermes", "conftest", "helpers", "mock_lumoauth", "common"]
