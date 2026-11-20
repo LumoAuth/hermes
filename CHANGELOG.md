@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 (2026-11-19)
+## 0.1.0 (unreleased)
 
 First release of LumoAuth Guard for Hermes Agent (`lumoauth-hermes`, plugin `lumoauth`).
 
