@@ -3,6 +3,10 @@ name: CI
 on:
   push:
   pull_request:
+  # Hermes main moves every day: catch an API change before a user does.
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -53,3 +57,41 @@ jobs:
           python-version: "3.13"
       - run: python -m pip install -e ".[dev]"
       - run: python -m pytest -q
+
+  # The plugin inside a real Hermes Agent: tests/test_real_hermes.py (skipped in the jobs above),
+  # and the check that the Hermes plugin catalog runs at admission. Hermes installs itself from
+  # its own lockfile; hermes-agent on PyPI is too old for these tests.
+  real-hermes:
+    name: real Hermes (${{ matrix.hermes }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # main, and the oldest release that plugin.yaml's requires_hermes admits.
+        hermes: [main, v0.21.6]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: hermes
+      - name: Check out Hermes Agent ${{ matrix.hermes }}
+        uses: actions/checkout@v4
+        with:
+          repository: NousResearch/hermes-agent
+          ref: ${{ matrix.hermes }}
+          path: hermes-agent
+      - uses: astral-sh/setup-uv@v6
+      - name: Install Hermes Agent from its lockfile
+        working-directory: hermes-agent
+        run: uv sync --frozen --no-dev
+      - name: Install the plugin into Hermes's environment
+        run: uv pip install --python hermes-agent/.venv/bin/python -e "./hermes[dev]"
+      - name: Tests, none skipped
+        working-directory: hermes
+        shell: bash
+        run: |
+          ../hermes-agent/.venv/bin/python -m pytest -q -rs | tee pytest.log
+          if grep -q '^SKIPPED' pytest.log; then echo "::error::tests were skipped"; exit 1; fi
+      - name: Catalog validation (hermes plugins validate)
+        if: matrix.hermes == 'main'
+        working-directory: hermes
+        run: ../hermes-agent/.venv/bin/hermes plugins validate . --install-deps

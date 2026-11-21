@@ -1,5 +1,6 @@
 manifest_version: 2
 api_version: 1
+requires_hermes: ">=0.21.6"
 name: lumoauth
 version: 0.1.0
 label: LumoAuth Guard

@@ -52,7 +52,7 @@ You keep the rules in LumoAuth: the list of capabilities that you grant to the a
 
 You need:
 
-- Hermes Agent, running on Python 3.11 or later.
+- Hermes Agent 0.21.6 or later, running on Python 3.11 or later.
 - A LumoAuth organization. [Create one](https://app.lumoauth.dev/register) if you don't have one yet.
 
 ### 1. Install the plugin
@@ -317,6 +317,7 @@ The directory has mode `0700` and the files have mode `0600`. The agent can neit
 | `refreshSeconds` | 30 to 600 | 60 | How often the capability list is refreshed. |
 | `offlineGraceSeconds` | 0 to 3600 | 300 | How long the last list stays valid when LumoAuth cannot be reached. |
 | `receipts` | `true`, `false` | `true` | Whether decisions are sent to LumoAuth's audit log. |
+| `reportUsage` | `true`, `false` | `true` | Whether the number of model tokens that the agent uses is sent to LumoAuth, once a minute. LumoAuth counts them against the token budgets that you can set for the agent. |
 | `rememberApprovals` | `true`, `false` | `true` | Whether "session" and "always" answers in Hermes's prompt count for a capability that is not granted. |
 | `extraProtectedPaths` | paths | `[]` | More paths to treat like credential stores. |
 | `allowPaths` | paths | `[]` | Paths inside the Hermes home that the agent may use, for example a folder of notes. It never opens Hermes's settings, credentials or the Guard's files. |
@@ -374,7 +375,18 @@ python -m venv .venv && .venv/bin/pip install -e ".[dev]"
 The contract (SPEC, catalog, test vectors and skill) comes from the [`agent-guard`](https://github.com/lumoauth/agent-guard) repository.
 `scripts/sync_contract.py` copies it into the package; the test vectors go to `tests/contract/vectors`.
 A test fails when the copy differs.
-`tests/test_real_hermes.py` loads the plugin into a real Hermes when `hermes-agent` can be imported.
+`tests/test_real_hermes.py` loads the plugin into a real Hermes Agent, and skips when Hermes is not installed.
+To run it, install the plugin into the environment of a Hermes Agent checkout, as CI does every week:
+
+```sh
+git clone --depth 1 https://github.com/NousResearch/hermes-agent.git ../hermes-agent
+(cd ../hermes-agent && uv sync --frozen --no-dev)
+uv pip install --python ../hermes-agent/.venv/bin/python -e ".[dev]"
+../hermes-agent/.venv/bin/python -m pytest
+../hermes-agent/.venv/bin/hermes plugins validate . --install-deps
+```
+
+The last command is the check that the Hermes plugin catalog runs.
 
 ## See also
 

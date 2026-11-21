@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `plugin.yaml` declares `requires_hermes: ">=0.21.6"`, the oldest Hermes Agent release that the plugin is tested with. Hermes skips the plugin on an older release instead of loading it.
+- CI runs the tests inside a real Hermes Agent every week, on `main` and on 0.21.6, and runs `hermes plugins validate`.
+- The README documents the `reportUsage` setting.
+
 ## 0.1.0 — 2026-11-20
 
 First release of LumoAuth Guard for Hermes Agent (`lumoauth-hermes`, plugin `lumoauth`).
