@@ -36,6 +36,80 @@ def test_auto_grant_from_config_and_env(tmp_path, monkeypatch, no_hermes):
     assert host.auto_grant_reason() == "yolo mode is on"
 
 
+def _fake_hermes_approval(monkeypatch, config: dict, **attrs):
+    """A stand-in for Hermes's tools.approval module, and Hermes's config as the Guard reads it."""
+    import sys
+    import types
+
+    approval = types.ModuleType("tools.approval")
+    for name, value in attrs.items():
+        setattr(approval, name, value)
+    package = types.ModuleType("tools")
+    package.approval = approval  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "tools", package)
+    monkeypatch.setitem(sys.modules, "tools.approval", approval)
+    monkeypatch.delenv("HERMES_YOLO_MODE", raising=False)
+    monkeypatch.setattr(hermes_host, "load_config", lambda home=None: config)
+    return HermesHost()
+
+
+def _raise(*_args):
+    raise RuntimeError("changed in this Hermes release")
+
+
+def test_config_is_asked_first_whatever_hermes_internals_say(monkeypatch):
+    host = _fake_hermes_approval(monkeypatch, {"approvals": {"mode": "off"}},
+                                 is_approval_bypass_active=lambda: False, _yolo_active=lambda: False)
+    assert host.auto_grant_reason() == "approvals.mode is off"
+    monkeypatch.setenv("HERMES_YOLO_MODE", "1")
+    assert host.auto_grant_reason() == "yolo mode is on"
+
+
+def test_hermes_public_bypass_check_sees_session_yolo(monkeypatch):
+    host = _fake_hermes_approval(monkeypatch, {"approvals": {"mode": "manual"}},
+                                 is_approval_bypass_active=lambda: True)
+    assert host.auto_grant_reason() == "approvals are switched off"
+
+
+def test_private_helpers_only_add_reasons(monkeypatch):
+    manual = {"approvals": {"mode": "manual"}}
+    # Missing or broken private helpers: the public sources still answer, nothing raises.
+    assert _fake_hermes_approval(monkeypatch, manual, is_approval_bypass_active=lambda: False) \
+        .auto_grant_reason() is None
+    assert _fake_hermes_approval(monkeypatch, manual, is_approval_bypass_active=lambda: False,
+                                 _yolo_active=_raise).auto_grant_reason() is None
+    # hermes -z, and an unattended context in approve mode, are known only to the private helpers.
+    assert _fake_hermes_approval(monkeypatch, manual, is_approval_bypass_active=lambda: False,
+                                 _yolo_active=lambda: True).auto_grant_reason() == "yolo mode is on"
+    cron = types_namespace(cfg_key="cron_mode", mode=lambda: "approve")
+    host = _fake_hermes_approval(monkeypatch, manual, is_approval_bypass_active=lambda: False,
+                                 _yolo_active=lambda: False, _presence=lambda: (None, False, False, False),
+                                 _unattended_contexts=lambda: [cron])
+    assert host.auto_grant_reason() == "approvals.cron_mode is approve"
+    host = _fake_hermes_approval(monkeypatch, manual, is_approval_bypass_active=lambda: False,
+                                 _yolo_active=lambda: False, _presence=lambda: (None, True, False, False),
+                                 _unattended_contexts=lambda: [cron])
+    assert host.auto_grant_reason() is None   # a person is at the terminal
+
+
+def test_unreadable_config_blocks_unless_hermes_answers_itself(monkeypatch):
+    def unreadable(home=None):
+        raise hermes_host.HostConfigError("config.yaml is not valid YAML")
+
+    host = _fake_hermes_approval(monkeypatch, {}, is_approval_bypass_active=_raise)
+    monkeypatch.setattr(hermes_host, "load_config", unreadable)
+    assert host.auto_grant_reason() == "Hermes's approval settings cannot be read"
+    host = _fake_hermes_approval(monkeypatch, {}, is_approval_bypass_active=lambda: False)
+    monkeypatch.setattr(hermes_host, "load_config", unreadable)
+    assert host.auto_grant_reason() is None
+
+
+def types_namespace(**values):
+    import types
+
+    return types.SimpleNamespace(**values)
+
+
 def test_hook_timeout_from_config():
     assert hook_callback_timeout({}) == 30
     assert hook_callback_timeout({"plugins": {"hook_callback_timeout": 180}}) == 180

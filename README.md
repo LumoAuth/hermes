@@ -262,6 +262,7 @@ In a chat, `/lumoauth` shows a short status and `/lumoauth lock` locks the Guard
 Unlocking is only possible in a terminal.
 
 `lumoauth-hermes` runs the same commands when the plugin is not loaded, for example `lumoauth-hermes doctor`.
+Unlike `hermes`, it does not load Hermes's `.env`, so its doctor cannot check the gateway settings kept there.
 
 <details>
 <summary><b>All options</b></summary>
@@ -272,7 +273,7 @@ Unlocking is only possible in a terminal.
 |---|---|
 | `setup` | `--url <dashboard address>` · `--region us\|eu` · `--org <organization>` · `--preset observer\|assistant\|builder` · `--approvals auto\|lumoauth\|host\|off` · `--name <agent name>` · `--yes` asks nothing · `--force` replaces an existing setup · `--no-hermes-config` leaves Hermes's `config.yaml` unchanged |
 | `status` | `--json` prints JSON · `--offline` skips LumoAuth |
-| `doctor` | `--json` prints JSON · `--offline` skips LumoAuth. It changes nothing. |
+| `doctor` | `--json` prints JSON · `--offline` skips LumoAuth. It changes nothing. It never opens Hermes's `.env` and never looks for secret values in `config.yaml`: for those files, it checks only who may read them. |
 | `lock` | `--reason <text>` keeps a note in the lock file. |
 | `reset` | `--yes` skips the question. The agent stays in LumoAuth until you delete it there; the command prints the link. |
 

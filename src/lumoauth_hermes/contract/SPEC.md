@@ -681,7 +681,7 @@ finding and a fix. Required checks:
 | `guard.connectivity` | token + snapshot work; agent status |
 | `guard.approvals` | approvals channel usable (host approvals reachable / LumoAuth delegation on) |
 | `guard.hook-timeout` | the host's hook timeout is ≥ 150 s when `approvals` may use `lumoauth` |
-| `secrets.plaintext` | API keys in plaintext files (host `.env`, config) — count only, never print values |
+| `secrets.plaintext` | API keys in plaintext files (host `.env`, config) — count only, never print values. Hermes forbids plugins to read its `.env` or secret values in `config.yaml`: there, who may read `<home>/.env` (readable by its group → warn, by others → critical), and never its contents |
 | `fs.permissions` | host config and credential files not readable by group/others |
 
 | Id | OpenClaw |

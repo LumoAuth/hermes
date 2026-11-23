@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import os
 
 import pytest
@@ -74,8 +75,41 @@ def test_gateway_allow_lists(tmp_path):
     ok = _checks(_inp(tmp_path, "approvals:\n  approvers: []\n",
                       env={"TELEGRAM_BOT_TOKEN": "x", "TELEGRAM_ALLOWED_USERS": "123"}))
     assert ok["hermes.allowed-users"].level == "ok" and ok["hermes.approvers"].level == "ok"
-    open_all = _checks(_inp(tmp_path, dotenv="GATEWAY_ALLOW_ALL_USERS=true\n"))
+    open_all = _checks(_inp(tmp_path, env={"GATEWAY_ALLOW_ALL_USERS": "true"}))
     assert open_all["hermes.allowed-users"].level == "critical"
+
+
+def test_standalone_command_says_it_cannot_see_the_hermes_env(tmp_path):
+    inp = dataclasses.replace(_inp(tmp_path), sees_hermes_env=False)
+    check = _checks(inp)["hermes.allowed-users"]
+    assert check.level == "info" and "hermes lumoauth doctor" in check.fix
+    inp = dataclasses.replace(_inp(tmp_path, env={"GATEWAY_ALLOW_ALL_USERS": "1"}), sees_hermes_env=False)
+    assert _checks(inp)["hermes.allowed-users"].level == "critical"
+
+
+def test_hermes_env_file_is_never_opened(tmp_path, monkeypatch):
+    """Hermes forbids plugins to read its .env: the gateway settings come from the environment only."""
+    import builtins
+    import io
+
+    _inp(tmp_path, "model:\n  api_key: sk-live-1234567890\n", dotenv="GATEWAY_ALLOW_ALL_USERS=true\nX_TOKEN=abc\n",
+         setup={})
+    opened: list[str] = []
+
+    def spy(real):
+        def wrapper(file, *args, **kwargs):
+            opened.append(os.fspath(file) if isinstance(file, (str, bytes, os.PathLike)) else repr(file))
+            return real(file, *args, **kwargs)
+        return wrapper
+
+    monkeypatch.setattr(builtins, "open", spy(builtins.open))
+    monkeypatch.setattr(io, "open", spy(io.open))
+    monkeypatch.setattr(os, "open", spy(os.open))
+    checks = _checks(doctor.gather(GuardHome(tmp_path / "guard"), tmp_path / "hermes", environ={}))
+    assert not [f for f in opened if str(f).endswith(".env")], opened
+    assert checks["hermes.allowed-users"].level == "ok"   # GATEWAY_ALLOW_ALL_USERS is only in the file
+    rendered = doctor.format_text(list(checks.values()))
+    assert "sk-live" not in rendered and "abc" not in rendered
 
 
 def test_hook_timeout_needed_for_lumoauth_approvals(tmp_path):
@@ -89,12 +123,16 @@ def test_hook_timeout_needed_for_lumoauth_approvals(tmp_path):
     assert _checks(inp)["hermes.hook-timeout"].level == "ok"
 
 
-def test_plaintext_secrets_are_counted_never_printed(tmp_path):
-    inp = _inp(tmp_path, "model:\n  api_key: sk-live-1234567890\n", dotenv="OPENAI_API_KEY=sk-abcdef123456\nX=1\n")
+def test_plaintext_check_looks_only_at_who_may_read_the_env_file(tmp_path):
+    assert _checks(_inp(tmp_path))["secrets.plaintext"].level == "ok"
+    inp = _inp(tmp_path, dotenv="OPENAI_API_KEY=sk-abcdef123456\n")
     check = _checks(inp)["secrets.plaintext"]
-    assert check.level == "warn" and "1 value" in check.finding and "1 more" in check.finding
-    rendered = doctor.format_text(doctor.run(inp=inp, offline=True))
-    assert "sk-live" not in rendered and "sk-abc" not in rendered
+    assert check.level == "ok" and "only you" in check.finding
+    os.chmod(inp.hermes_home / ".env", 0o640)
+    check = _checks(inp)["secrets.plaintext"]
+    assert check.level == "warn" and "640" in check.finding and "chmod 600" in check.fix
+    os.chmod(inp.hermes_home / ".env", 0o644)
+    assert _checks(inp)["secrets.plaintext"].level == "critical"
 
 
 def test_permissions_of_hermes_files(tmp_path):

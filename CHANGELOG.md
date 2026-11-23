@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+Changes asked for in the review for the Hermes plugin catalog.
+
+- `doctor` no longer reads Hermes's `.env` file or looks for secret values in `config.yaml`, which Hermes
+  forbids plugins to do. The gateway checks read the environment, which the `hermes` command loads from `.env`
+  when it starts. `secrets.plaintext` now reports only who may read `.env`. Run outside Hermes,
+  `lumoauth-hermes doctor` says that it cannot see the gateway settings in `.env`.
+- To learn whether Hermes would approve a call without asking, the Guard first reads `HERMES_YOLO_MODE` and
+  `approvals.mode` from Hermes's config, then Hermes's public `is_approval_bypass_active()`. Hermes's private
+  approval helpers come last, for `hermes -z` and unattended contexts. They can only add a reason to block, and
+  when they change, the Guard does without them. `approval_context._get_approval_mode` is no longer used.
+- Contract: the `secrets.plaintext` row of SPEC §9 says what the check covers on Hermes.
+
 ## 0.1.1 — 2026-11-20
 
 - `plugin.yaml` declares `requires_hermes: ">=0.21.6"`, the oldest Hermes Agent release that the plugin is tested with. Hermes skips the plugin on an older release instead of loading it.

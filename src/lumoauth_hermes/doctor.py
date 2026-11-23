@@ -1,12 +1,16 @@
 """Doctor (SPEC §9): checks of the Guard and of Hermes's own security settings.
 
-Doctor never changes anything. Secret values are never printed: only counts.
+Doctor never changes anything. It never reads Hermes's ``.env`` file or looks for secret values
+in ``config.yaml``, which Hermes forbids plugins to do. The settings that live in ``.env`` (gateway
+tokens and allow-lists) come from the environment, where the ``hermes`` command loads them when it
+starts. For the files themselves, doctor looks only at who may read them.
 """
 
 from __future__ import annotations
 
 import os
-import re
+import sys
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -34,8 +38,6 @@ PLATFORMS = ("TELEGRAM", "DISCORD", "WHATSAPP", "WHATSAPP_CLOUD", "SLACK", "SIGN
 #: Platforms whose bot token in the environment shows that they are set up (gateway/config.py).
 PLATFORM_TOKENS = {"TELEGRAM": "TELEGRAM_BOT_TOKEN", "DISCORD": "DISCORD_BOT_TOKEN", "SLACK": "SLACK_BOT_TOKEN",
                    "MATTERMOST": "MATTERMOST_TOKEN", "MATRIX": "MATRIX_ACCESS_TOKEN", "WEIXIN": "WEIXIN_TOKEN"}
-_SECRET_NAME = re.compile(r"(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH)", re.IGNORECASE)
-_SECRET_CONFIG_KEY = re.compile(r"(api_?key|token|secret|password|passwd|credential)", re.IGNORECASE)
 _TRUE = {"1", "true", "yes", "on"}
 
 
@@ -47,37 +49,25 @@ class Check:
     fix: str = ""
 
 
-def read_env_file(path: Path) -> dict[str, str]:
-    """KEY=VALUE lines of a .env file (values are only used for presence checks)."""
-    values: dict[str, str] = {}
-    try:
-        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError:
-        return values
-    for line in lines:
-        text = line.strip()
-        if not text or text.startswith("#") or "=" not in text:
-            continue
-        name, _, value = text.partition("=")
-        name = name.strip()
-        if name.startswith("export "):
-            name = name[7:].strip()
-        values[name] = value.strip().strip("'\"")
-    return values
-
-
 @dataclass
 class DoctorInput:
     home: GuardHome
     hermes_home: Path
     hermes_config: dict[str, Any]
     hermes_config_error: str | None
-    environ: dict[str, str]
+    environ: Mapping[str, str]
     hook_timeout: float
+    #: False in the standalone ``lumoauth-hermes`` command: Hermes's .env is not in its environment.
+    sees_hermes_env: bool = True
+
+
+def inside_hermes_command() -> bool:
+    """True inside the ``hermes`` command, which loads Hermes's .env into the environment when it starts."""
+    return "hermes_cli.main" in sys.modules
 
 
 def gather(home: GuardHome | None = None, hermes_home_path: Path | None = None,
-           environ: dict[str, str] | None = None) -> DoctorInput:
+           environ: Mapping[str, str] | None = None) -> DoctorInput:
     home = home or GuardHome()
     hpath = hermes_home_path or hermes_home()
     error = None
@@ -85,10 +75,10 @@ def gather(home: GuardHome | None = None, hermes_home_path: Path | None = None,
         cfg = load_config(hpath if hermes_home_path else None)
     except HostConfigError as exc:
         cfg, error = {}, str(exc)
-    env = dict(read_env_file(hpath / ".env"))
-    env.update(environ if environ is not None else os.environ)
+    sees = environ is not None or inside_hermes_command()
+    env = os.environ if environ is None else environ
     timeout = hook_callback_timeout(cfg)
-    return DoctorInput(home, hpath, cfg, error, env, timeout)
+    return DoctorInput(home, hpath, cfg, error, env, timeout, sees)
 
 
 def _truthy(value: str | None) -> bool:
@@ -209,42 +199,19 @@ def check_hook_timeout(inp: DoctorInput, cfg: GuardConfig | None, check_id: str)
     return Check(check_id, "ok", f"plugins.hook_callback_timeout is {timeout:g} s.")
 
 
-def _secret_values(value: Any, depth: int = 0, key: str = "") -> int:
-    if depth > 10:
-        return 0
-    if isinstance(value, dict):
-        return sum(_secret_values(v, depth + 1, str(k)) for k, v in value.items())
-    if isinstance(value, list):
-        return sum(_secret_values(v, depth + 1, key) for v in value)
-    if isinstance(value, str) and key and _SECRET_CONFIG_KEY.search(key):
-        text = value.strip()
-        if len(text) >= 8 and not text.startswith(("${", "$", "secret://", "env:", "op://")):
-            return 1
-    return 0
-
-
 def check_plaintext(inp: DoctorInput) -> Check:
-    env_values = read_env_file(inp.hermes_home / ".env")
-    in_env = sum(1 for name, value in env_values.items() if value and _SECRET_NAME.search(name))
-    raw_config: dict[str, Any] = {}
-    try:
-        from .hermes_host import read_config_file
-
-        raw_config = read_config_file(inp.hermes_home / "config.yaml")
-    except HostConfigError:
-        pass
-    in_config = _secret_values(raw_config)
-    if in_config:
-        return Check("secrets.plaintext", "warn",
-                     f"config.yaml holds {in_config} value(s) that look like API keys or tokens; "
-                     f"{in_env} more in .env.",
-                     "Move them to the Hermes .env file (`hermes config set <NAME> <value>` writes there), "
-                     "and keep it readable by you only.")
-    if in_env:
-        return Check("secrets.plaintext", "info", f"{in_env} API key(s) or token(s) in {inp.hermes_home / '.env'} "
-                     "(plaintext, which is how Hermes stores them).",
-                     f"Keep it readable by you only: chmod 600 '{inp.hermes_home / '.env'}'")
-    return Check("secrets.plaintext", "ok", "No plaintext API keys found in the Hermes home.")
+    """Hermes keeps API keys in plaintext in its .env. Plugins may not read that file, so this looks
+    only at who may read it (SPEC §9)."""
+    path = inp.hermes_home / ".env"
+    mode = mode_of(path)
+    if mode is None:
+        return Check("secrets.plaintext", "ok", f"There is no {path}, where Hermes keeps API keys in plaintext.")
+    if mode & 0o077:
+        return Check("secrets.plaintext", "critical" if mode & 0o004 else "warn",
+                     f"Hermes keeps API keys in plaintext in {path}, and other users may read it (mode {mode:o}).",
+                     f"Run: chmod 600 '{path}'")
+    return Check("secrets.plaintext", "ok", f"Hermes keeps API keys in plaintext in {path}, which only you may "
+                 "read. The Guard never reads it, and blocks tools from reading it.")
 
 
 def check_permissions(inp: DoctorInput) -> Check:
@@ -304,6 +271,14 @@ def messaging_platforms(inp: DoctorInput) -> list[str]:
 
 
 def check_allowed_users(inp: DoctorInput) -> Check:
+    check = _allowed_users(inp)
+    if not inp.sees_hermes_env and check.level in ("ok", "info"):
+        return Check(check.id, "info", f"{check.finding} This command does not see Hermes's .env, where the "
+                     "gateway settings usually are.", "Run `hermes lumoauth doctor`, which sees them.")
+    return check
+
+
+def _allowed_users(inp: DoctorInput) -> Check:
     env = inp.environ
     open_all = [v for v in ["GATEWAY_ALLOW_ALL_USERS", *(f"{p}_ALLOW_ALL_USERS" for p in PLATFORMS)]
                 if _truthy(env.get(v))]

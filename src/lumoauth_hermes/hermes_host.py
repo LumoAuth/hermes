@@ -1,8 +1,9 @@
 """What the Guard reads from Hermes, and what setup writes to Hermes's config.yaml.
 
-Inside a Hermes process the Guard asks Hermes's own functions (the approval
-mode, yolo, the hook timeout, the session's working directory). Outside one
-(the ``lumoauth-hermes`` command, tests) it reads ``config.yaml`` itself.
+Inside a Hermes process the Guard asks Hermes's own functions (its config
+loader, its approval bypass check). Outside one (the ``lumoauth-hermes``
+command, tests) it reads ``config.yaml`` itself. It never reads Hermes's
+``.env``: the ``hermes`` command loads that file into the environment.
 """
 
 from __future__ import annotations
@@ -123,54 +124,61 @@ class HermesHost:
     def auto_grant_reason(self) -> str | None:
         """Why Hermes would grant an ``approve`` directive without asking a person (SPEC §6.4), or None.
 
-        Hermes has no public function for this, so this reads ``tools.approval`` (the same
-        checks that ``request_tool_approval`` makes) and falls back to config.yaml and
-        ``HERMES_YOLO_MODE`` when those internals change.
+        Hermes grants without asking under ``approvals.mode: off``, ``--yolo``, ``/yolo`` and
+        ``hermes -z``, and in an unattended context (cron, ``-q``, webhook) whose
+        ``approvals.<context>_mode`` is ``approve``. Hermes has no public function that answers
+        this, so the Guard asks three sources in turn, and blocks as soon as one says yes:
 
-        Hermes grants without asking under ``approvals.mode: off``, ``--yolo`` or
-        ``/yolo``, and in an unattended context (cron, ``-q``, webhook) whose
-        ``approvals.<context>_mode`` is ``approve``.
+        1. ``HERMES_YOLO_MODE`` and ``approvals.mode`` in Hermes's config. They do not depend on
+           Hermes's internals, and are always asked.
+        2. ``tools.approval.is_approval_bypass_active()``, Hermes's own check, which also sees
+           ``/yolo`` turned on in a session.
+        3. Hermes's private helpers, for what only they know (``hermes -z``, unattended
+           contexts). They can change in any Hermes release, and then the Guard does without
+           them. They can only add a reason to block, never remove one.
         """
-        try:
-            from tools import approval as hermes_approval  # type: ignore[import-not-found]
-            from tools import approval_context  # type: ignore[import-not-found]
-        except Exception:
-            return self._auto_grant_from_config()
-        try:
-            if hermes_approval._yolo_active():
-                return "yolo mode is on"
-            if approval_context._get_approval_mode() == "off":
-                return "approvals.mode is off"
-            _callback, is_cli, is_gateway, is_ask = hermes_approval._presence()
-            if not (is_cli or is_gateway or is_ask):
-                for context in hermes_approval._unattended_contexts():
-                    if context.mode() == "approve":
-                        return f"approvals.{context.cfg_key} is approve"
-                    break
-            return None
-        except AttributeError:
-            pass
-        except Exception:
-            logger.debug("Hermes approval state could not be read", exc_info=True)
-        try:
-            if hermes_approval.is_approval_bypass_active():
-                return "approvals are switched off"
-            return None
-        except Exception:
-            return self._auto_grant_from_config()
-
-    def _auto_grant_from_config(self) -> str | None:
         if yolo_env():
             return "yolo mode is on"
+        unreadable = None
         try:
             if approval_mode(load_config()) == "off":
                 return "approvals.mode is off"
         except HostConfigError:
-            return "Hermes's approval settings cannot be read"
-        return None
+            unreadable = "Hermes's approval settings cannot be read"
+        try:
+            from tools import approval as hermes_approval  # type: ignore[import-not-found]
+        except Exception:
+            return unreadable
+        try:
+            bypass = hermes_approval.is_approval_bypass_active()
+        except Exception:
+            logger.debug("tools.approval.is_approval_bypass_active() failed", exc_info=True)
+            if unreadable:
+                return unreadable
+        else:
+            # Hermes read its own approval settings, so an unreadable file no longer matters.
+            if bypass:
+                return "approvals are switched off"
+        return _private_auto_grant_reason(hermes_approval)
 
     def hook_timeout(self) -> float:
         return hook_callback_timeout()
+
+
+def _private_auto_grant_reason(hermes_approval: Any) -> str | None:
+    """What only Hermes's private approval helpers know: ``hermes -z``, and unattended contexts."""
+    try:
+        if hermes_approval._yolo_active():
+            return "yolo mode is on"
+        _callback, is_cli, is_gateway, is_ask = hermes_approval._presence()
+        if not (is_cli or is_gateway or is_ask):
+            for context in hermes_approval._unattended_contexts():
+                if context.mode() == "approve":
+                    return f"approvals.{context.cfg_key} is approve"
+                break
+    except Exception:
+        logger.debug("Hermes's private approval helpers could not be read", exc_info=True)
+    return None
 
 
 # ── Writing config.yaml (setup only) ────────────────────────────────────────
