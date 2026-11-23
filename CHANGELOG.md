@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.2 — 2026-11-23
+
 Changes asked for in the review for the Hermes plugin catalog.
 
 - `doctor` no longer reads Hermes's `.env` file or looks for secret values in `config.yaml`, which Hermes
