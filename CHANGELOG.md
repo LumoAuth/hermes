@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+Changes asked for in the second review for the Hermes plugin catalog.
+
+- Reporting is opt-in. `receipts` and `reportUsage` default to `false`, and `hermes lumoauth setup` asks about
+  each one. The default answer is no. In a script, `--receipts` and `--report-usage` say yes, and `--yes` alone
+  says no. Approval requests still send the call's title and argument lines, because the person needs them to
+  decide.
+- Setup's self-test sends its test receipt only when receipts are on.
+- `status` shows whether receipts and token counts are on. The README lists what the Guard sends to LumoAuth.
+- After an upgrade, an existing setup keeps `"receipts": true`, which setup wrote into `config.json`. Token
+  counts stop, because setup never wrote `reportUsage`. To keep sending them, set `"reportUsage": true`.
+- Contract: SPEC §3.1 lists `receipts` and `reportUsage`, both `false` by default, and setup asks about them
+  (§8.1).
+
 ## 0.1.2 — 2026-11-23
 
 Changes asked for in the review for the Hermes plugin catalog.

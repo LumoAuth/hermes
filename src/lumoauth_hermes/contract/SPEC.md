@@ -27,7 +27,7 @@ process, before the tool runs. It protects:
 | Exfiltration after untrusted input | After the session took in untrusted content (web pages, e-mail), actions that send data out need approval even when granted (§6.3, "taint"). |
 | Identity | The agent authenticates with its own key pair (`private_key_jwt`, RFC 7523) and sender-constrained tokens (DPoP, RFC 9449). The private key never leaves the machine; no shared secret exists. |
 | Kill switch | Suspending, deactivating or deleting the agent in LumoAuth stops every tool call within one refresh interval (§7.2). |
-| Accountability | Every decision becomes an audit entry in LumoAuth (tool-call receipts, §7.4). |
+| Accountability | When the owner turns receipts on, every decision becomes an audit entry in LumoAuth (tool-call receipts, §7.4). |
 | Host hardening | `doctor` (§9) checks the host's own security settings (sandboxing, who may message the agent, exposed gateways, file permissions, plaintext secrets) and says what to change. |
 
 **Trusted:** the owner, the LumoAuth server, the host process and its plugin
@@ -100,7 +100,8 @@ The Guard home is protected by §5 (no read, no write by the agent).
   "taint": { "enabled": true, "windowSeconds": 1800, "escalate": ["external"] },
   "refreshSeconds": 60,
   "offlineGraceSeconds": 300,
-  "receipts": true,
+  "receipts": false,
+  "reportUsage": false,
   "rememberApprovals": true,
   "extraProtectedPaths": [],
   "allowPaths": []
@@ -115,12 +116,19 @@ The Guard home is protected by §5 (no read, no write by the agent).
 | `taint.escalate` | subset of risks (§4.2), plus `egress` | `["external"]` | Risks that need approval after untrusted input. `egress` adds the tools that can carry data out in a URL (`web_fetch`, browser tools) even when their risk is lower. Strict: `["external","execute","egress"]`. |
 | `refreshSeconds` | 30–600 | 60 | How often the capability snapshot is refreshed. |
 | `offlineGraceSeconds` | 0–3600 | 300 | How long a snapshot may be used when LumoAuth cannot be reached. |
+| `receipts` | bool | `false` | Whether a receipt is sent for each decision (§7.4). Setup asks (§8.1). |
+| `reportUsage` | bool | `false` | Whether model token usage is sent (§7.6). Setup asks (§8.1). |
 | `rememberApprovals` | bool | `true` | Whether a person's "allow for this session / always" answer in the host's approval UI is honoured (§6.4). |
 | `extraProtectedPaths` | paths | `[]` | Added to the deny rules of §5.1 (read and write). |
 | `allowPaths` | paths | `[]` | Removed from the **host state** deny rules only (never from the Guard home, secrets or host config files). |
 
 Unknown keys MUST be ignored. A value out of range MUST fall back to the
 default and be reported by `status`.
+
+Reporting is opt-in. The Guard MUST NOT send receipts (§7.4) or usage
+(§7.6) unless the owner said yes in setup or set the key to `true`. An
+approval request (§7.5) is not reporting: it carries what the person needs
+to decide, and is sent whatever these keys say.
 
 ## 4. Classifying a tool call
 
@@ -512,7 +520,7 @@ ran:
 - Flush every 5 s or at 20 queued; at most 1,000 queued (oldest dropped,
   counted in `status`); 429/5xx/network → keep and retry with back-off; 400
   → drop the batch and log it (a bug).
-- `receipts: false` sends none.
+- Sent only when `receipts` is `true` (§3.1); otherwise none.
 
 ### 7.5 LumoAuth approval (phone, Slack, Discord)
 
@@ -554,7 +562,7 @@ one call. While waiting, the Guard tells the host where the person can answer
 exposes model token usage (Hermes `post_api_request` `usage.total_tokens`;
 OpenClaw `llm_output` `usage.total`, which needs
 `plugins.entries.lumoauth.hooks.allowConversationAccess: true`). Batched per
-minute.
+minute. Sent only when `reportUsage` is `true` (§3.1).
 
 ## 8. Setup and enrollment
 
@@ -568,7 +576,10 @@ minute.
    host's configuration (OpenClaw `mcp.servers`, Hermes `mcp_servers`). No MCP
    server is started.
 3. Ask (or take from flags) the preset (`observer`, `assistant`
-   (default), `builder`; `catalog/presets.json`), and approvals (`auto`).
+   (default), `builder`; `catalog/presets.json`), approvals (`auto`), and
+   two yes/no questions whose default is no: send receipts (§7.4), and send
+   token usage (§7.6). The flags are `--receipts` and `--report-usage`;
+   without them, a run that asks nothing (`--yes`) sends neither.
 4. Generate the P-256 key, write `agent-key.pem` (`0600`), compute the JWK
    thumbprint (RFC 7638) as `keyId`.
 5. Start an enrollment (§8.2) with the preset's capability checklist;
@@ -576,7 +587,8 @@ minute.
    first 4 groups of 4 characters of the thumbprint, e.g. `Zx3a-91Kc-…`).
 6. Poll until approved, denied or expired.
 7. Write `config.json`; configure the host (§10); run a self-test (token,
-   snapshot, one receipt with tool `lumoauth.selftest`); print the granted
+   snapshot, and one receipt with tool `lumoauth.selftest` when receipts
+   are on); print the granted
    capabilities and the `doctor` summary.
 
 Setup MUST NOT need an administrator token on the agent's machine.

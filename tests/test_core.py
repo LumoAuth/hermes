@@ -77,6 +77,7 @@ def test_config_defaults_and_unknown_keys():
     cfg = parse_config({**BASE, "somethingNew": 1})
     assert cfg.approvals == "auto" and cfg.decision_mode == "local" and cfg.get("refreshSeconds") == 60
     assert cfg.taint.escalate == ("external",) and cfg.warnings == []
+    assert cfg.get("receipts") is False and cfg.get("reportUsage") is False, "reporting is opt-in"
     assert cfg.agent_url == "https://app.lumoauth.dev/orgs/acme/portal/agents/agt_1"
 
 
@@ -85,7 +86,7 @@ def test_config_out_of_range_falls_back_and_is_reported():
                         "taint": {"enabled": True, "windowSeconds": 1800, "escalate": ["external", "bogus"]},
                         "receipts": "yes"})
     assert cfg.get("refreshSeconds") == 60 and cfg.get("offlineGraceSeconds") == 300 and cfg.approvals == "auto"
-    assert cfg.taint.escalate == ("external",) and cfg.get("receipts") is True
+    assert cfg.taint.escalate == ("external",) and cfg.get("receipts") is False
     assert len(cfg.warnings) == 5
 
 

@@ -103,7 +103,8 @@ class MockLumoAuth:
                 "issuer": self.issuer, "tokenEndpoint": self.token_endpoint, "keyId": kid, "ownerUserId": OWNER,
                 "canActOnBehalfOfUsers": False, "preset": "assistant", "decisionMode": "local", "approvals": "auto",
                 "onUngranted": "ask", "taint": {"enabled": True, "windowSeconds": 1800, "escalate": ["external"]},
-                "refreshSeconds": 60, "offlineGraceSeconds": 300, "receipts": True, "rememberApprovals": True,
+                "refreshSeconds": 60, "offlineGraceSeconds": 300, "receipts": True, "reportUsage": True,
+                "rememberApprovals": True,
                 "extraProtectedPaths": [], "allowPaths": []}
         data.update(overrides)
         return data

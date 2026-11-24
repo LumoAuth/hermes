@@ -332,7 +332,7 @@ def test_key_mismatch_blocks(tmp_path, mock):
     assert result["action"] == "block" and "does not match" in result["message"]
 
 
-def test_usage_is_reported(tmp_path, mock):
+def test_usage_is_reported_when_turned_on(tmp_path, mock):
     s = set_up_guard(tmp_path, mock)
     s.guard.pre_tool_call(**call_kwargs("read_file", {"path": "a"}))
     s.guard.post_api_request(usage={"total_tokens": 1200, "prompt_tokens": 1000})
@@ -348,6 +348,24 @@ def test_receipts_off_sends_nothing(tmp_path, mock):
     s.guard.pre_tool_call(**call_kwargs("read_file", {"path": "~/.ssh/x"}))
     s.guard.flush()
     assert mock.state.receipts == []
+
+
+def test_without_a_yes_in_setup_nothing_is_reported_but_approvals_still_work(tmp_path, mock):
+    s = set_up_guard(tmp_path, mock, configure=False)
+    data = mock.config(s.key.kid, canActOnBehalfOfUsers=True)
+    del data["receipts"], data["reportUsage"]
+    s.home.write_config(data)
+    mock.state.approval_statuses.extend(["approved"])
+    args = {"command": "make deploy"}
+    assert s.guard.pre_tool_call(**call_kwargs("read_file", {"path": "a"})) is None
+    assert s.guard.pre_tool_call(**call_kwargs("terminal", args)) is None
+    s.guard.post_tool_call(**post_kwargs("terminal", args))
+    s.guard.post_api_request(usage={"total_tokens": 1200})
+    assert s.guard.flush()
+    assert mock.state.receipts == [] and mock.state.usage == []
+    # A call that asks a person still sends what the person needs to decide.
+    [request] = mock.state.approvals
+    assert request["meta"]["title"] == "Allow terminal?" and request["meta"]["args"] == ["command: make deploy"]
 
 
 def test_unfinished_call_is_sent_without_outcome(tmp_path, mock, monkeypatch):

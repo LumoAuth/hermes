@@ -45,7 +45,7 @@ You keep the rules in LumoAuth: the list of capabilities that you grant to the a
 - **Protected, whatever you grant.** The agent can never read the Guard's key, change Hermes's settings, turn plugins off or open your credential stores.
 - **Extra care after untrusted content.** After the agent reads a web page, an e-mail or a chat message, calls that send data out need approval.
 - **No silent approvals.** When Hermes would approve without asking (`--yolo`, or approvals switched off), the Guard blocks the call instead.
-- **A record of every decision.** Each decision becomes an entry in LumoAuth's audit log. Argument values stay on your machine.
+- **A record of every decision, if you want one.** When you turn on receipts in setup, each decision becomes an entry in LumoAuth's audit log. Argument values stay on your machine.
 - **Fails closed.** Every tool call is blocked until setup finishes. Calls are also blocked when LumoAuth cannot confirm the agent's permissions for longer than 5 minutes.
 
 ## Quick start
@@ -75,6 +75,8 @@ hermes lumoauth setup
 
 Setup asks for the address of your LumoAuth dashboard, for example `https://app.lumoauth.dev/orgs/acme/portal`.
 It asks what the agent may do without asking (a [preset](#presets)) and where a person should approve calls.
+It also asks whether to send LumoAuth a receipt for each decision, and the number of model tokens that the agent uses.
+Both answers default to no. See [What it sends to LumoAuth](#what-it-sends-to-lumoauth).
 Then it creates a key for the agent and prints a link:
 
 ```text
@@ -101,10 +103,11 @@ Setup then continues on its own. It saves its settings, runs a self-test and lis
 
 ```text
 Approved. Agent agt_3f9c1d2e8a7b6054 is set up; settings are in /home/you/.lumoauth/guard/hermes/config.json.
+Receipts: off. Token counts: off. To change them, set `receipts` or `reportUsage` in config.json.
 Hermes: plugins.hook_callback_timeout: 180.
 Self-test: token ............ ok
 Self-test: capabilities ..... ok (agent active)
-Self-test: receipt .......... ok
+Self-test: receipt .......... skipped (receipts are off)
 
 Granted capabilities (14): files:read, files:write, media:generate, media:read, memory:write, sessions:read, shell:read, skills:read, tasks:write, tools:read, ui:write, user:ask, web:fetch, web:search
 Everything else asks a person first or is blocked.
@@ -135,6 +138,7 @@ hermes lumoauth setup --url https://app.lumoauth.dev/orgs/acme/portal --preset a
 ```
 
 A script cannot answer the scan question, so it needs `--force`.
+With `--yes`, setup sends no receipts and no token counts. Add `--receipts` or `--report-usage` to send them.
 You still approve the agent in LumoAuth: setup prints the link and waits for you.
 
 </details>
@@ -159,7 +163,7 @@ You still approve the agent in LumoAuth: setup prints the link and waits for you
 | **Untrusted content** | After the agent reads a web page, search results, e-mail or chat messages, calls that send data out need approval, even when they are granted. Writing to memory or skills needs approval too. |
 | **Identity** | The agent signs in with its own key pair (`private_key_jwt`). Its tokens work only with a short-lived key that this Hermes process holds (DPoP). The private key never leaves the machine, and there is no shared secret. |
 | **Kill switch** | When you suspend or delete the agent in LumoAuth, every tool call stops within one minute. `hermes lumoauth lock` stops them at once on this machine. |
-| **Audit trail** | Every decision becomes an entry in LumoAuth's audit log. The entry holds a SHA-256 digest of the arguments, never the arguments. |
+| **Audit trail** | When receipts are on, every decision becomes an entry in LumoAuth's audit log. The entry holds a SHA-256 digest of the arguments, never the arguments. |
 | **Hermes settings** | `hermes lumoauth doctor` checks Hermes's own security settings and says what to change. |
 
 ## How a call is decided
@@ -247,6 +251,20 @@ Hermes's prompt offers "once", "session" and "always".
 Every request shows the tool, the reason, the capability, the risk and up to five arguments.
 Values of arguments named like passwords, tokens, keys or cookies are hidden.
 
+## What it sends to LumoAuth
+
+The Guard talks only to the LumoAuth organization that you named in setup.
+There is no other telemetry.
+
+| What | When |
+|---|---|
+| A token request, signed with the agent's key | When the agent's token runs out. |
+| A request for the agent's capabilities | Every minute. |
+| An approval request: the tool, the reason, the capability, the risk and up to five argument lines | When a call waits for a LumoAuth approval. The person needs these to decide. Secret values are hidden. |
+| A receipt: the tool, the decision, how the call ended and a SHA-256 digest of the arguments, never their values | For each decision, only if you said yes in setup (`receipts`). |
+| The number of model tokens that the agent used | Once a minute, only if you said yes in setup (`reportUsage`). LumoAuth needs it for the token budgets that you set for the agent. |
+| The capability that a call needs | For each call, only with `decisionMode: server`, which you set yourself. LumoAuth's Ask API decides and records the answer. |
+
 ## Everyday commands
 
 | What you want | Command |
@@ -271,7 +289,7 @@ Unlike `hermes`, it does not load Hermes's `.env`, so its doctor cannot check th
 
 | Command | Options |
 |---|---|
-| `setup` | `--url <dashboard address>` · `--region us\|eu` · `--org <organization>` · `--preset observer\|assistant\|builder` · `--approvals auto\|lumoauth\|host\|off` · `--name <agent name>` · `--yes` asks nothing · `--force` replaces an existing setup · `--no-hermes-config` leaves Hermes's `config.yaml` unchanged |
+| `setup` | `--url <dashboard address>` · `--region us\|eu` · `--org <organization>` · `--preset observer\|assistant\|builder` · `--approvals auto\|lumoauth\|host\|off` · `--receipts` / `--no-receipts` · `--report-usage` / `--no-report-usage` (both default to no) · `--name <agent name>` · `--yes` asks nothing · `--force` replaces an existing setup · `--no-hermes-config` leaves Hermes's `config.yaml` unchanged |
 | `status` | `--json` prints JSON · `--offline` skips LumoAuth |
 | `doctor` | `--json` prints JSON · `--offline` skips LumoAuth. It changes nothing. It never opens Hermes's `.env` and never looks for secret values in `config.yaml`: for those files, it checks only who may read them. |
 | `lock` | `--reason <text>` keeps a note in the lock file. |
@@ -317,8 +335,8 @@ The directory has mode `0700` and the files have mode `0600`. The agent can neit
 | `taint.escalate` | risks, plus `egress` | `["external"]` | What needs approval after untrusted content. Strict: `["external", "execute", "egress"]`. |
 | `refreshSeconds` | 30 to 600 | 60 | How often the capability list is refreshed. |
 | `offlineGraceSeconds` | 0 to 3600 | 300 | How long the last list stays valid when LumoAuth cannot be reached. |
-| `receipts` | `true`, `false` | `true` | Whether decisions are sent to LumoAuth's audit log. |
-| `reportUsage` | `true`, `false` | `true` | Whether the number of model tokens that the agent uses is sent to LumoAuth, once a minute. LumoAuth counts them against the token budgets that you can set for the agent. |
+| `receipts` | `true`, `false` | `false` | Whether a receipt for each decision is sent to LumoAuth's audit log. Setup asks. |
+| `reportUsage` | `true`, `false` | `false` | Whether the number of model tokens that the agent uses is sent to LumoAuth, once a minute. LumoAuth counts them against the token budgets that you can set for the agent. Setup asks. |
 | `rememberApprovals` | `true`, `false` | `true` | Whether "session" and "always" answers in Hermes's prompt count for a capability that is not granted. |
 | `extraProtectedPaths` | paths | `[]` | More paths to treat like credential stores. |
 | `allowPaths` | paths | `[]` | Paths inside the Hermes home that the agent may use, for example a folder of notes. It never opens Hermes's settings, credentials or the Guard's files. |

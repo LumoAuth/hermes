@@ -43,6 +43,8 @@ class SetupOptions:
     org: str | None = None
     preset: str | None = None
     approvals: str | None = None
+    receipts: bool | None = None
+    report_usage: bool | None = None
     name: str | None = None
     yes: bool = False
     host_config: bool = True
@@ -115,6 +117,16 @@ def _choose(io: SetupIO, question: str, options: list[tuple[str, str]], default:
             return options[int(answer) - 1][0]
         if answer in [v for v, _ in options]:
             return answer
+
+
+def _yes_no(io: SetupIO, question: str) -> bool:
+    """A yes/no question whose default is no."""
+    while True:
+        answer = io.ask(f"{question} [y/N]: ").strip().lower()
+        if answer in ("", "n", "no"):
+            return False
+        if answer in ("y", "yes"):
+            return True
 
 
 def _remove(paths: list[Path]) -> None:
@@ -208,6 +220,21 @@ def _run(opts: SetupOptions, io: SetupIO, home: GuardHome) -> int:
     if approvals not in APPROVALS:
         raise SetupError(f"unknown approvals setting {approvals!r}")
 
+    # Reporting is opt-in (SPEC §3.1): without a yes, nothing is reported. Approval requests are not
+    # reporting; they are how a person approves.
+    receipts = opts.receipts
+    if receipts is None and interactive:
+        out("LumoAuth can keep an audit log of the Guard's decisions. Each entry names the tool, the decision "
+            "and how the call ended, with a SHA-256 hash of the arguments. The arguments stay on this machine.")
+        receipts = _yes_no(io, "Send a receipt for each decision to LumoAuth?")
+        out("")
+    report_usage = opts.report_usage
+    if report_usage is None and interactive:
+        out("LumoAuth can count the model tokens that the agent uses, for the token budgets that you set for it.")
+        report_usage = _yes_no(io, "Send the number of tokens to LumoAuth once a minute?")
+        out("")
+    receipts, report_usage = bool(receipts), bool(report_usage)
+
     # 4. Key.
     home.ensure()
     for stale in (home.config_path, home.key_path):
@@ -283,14 +310,16 @@ def _run(opts: SetupOptions, io: SetupIO, home: GuardHome) -> int:
         "tokenEndpoint": result["token_endpoint"], "keyId": key.kid,
         "ownerUserId": str(result.get("owner_user_id") or ""), "canActOnBehalfOfUsers": can_act,
         "preset": preset, "decisionMode": "local", "approvals": approvals, "onUngranted": "ask",
-        "taint": dict(DEFAULT_TAINT), "refreshSeconds": 60, "offlineGraceSeconds": 300, "receipts": True,
-        "rememberApprovals": True, "extraProtectedPaths": [], "allowPaths": [],
+        "taint": dict(DEFAULT_TAINT), "refreshSeconds": 60, "offlineGraceSeconds": 300, "receipts": receipts,
+        "reportUsage": report_usage, "rememberApprovals": True, "extraProtectedPaths": [], "allowPaths": [],
     }
     if isinstance(result.get("agent_url"), str) and is_allowed_url(result["agent_url"]):
         data["agentUrl"] = result["agent_url"]
     home.write_config(data)
     out("")
     out(f"Approved. Agent {data['agentId']} is set up; settings are in {home.config_path}.")
+    out(f"Receipts: {'on' if receipts else 'off'}. Token counts: {'on' if report_usage else 'off'}. "
+        "To change them, set `receipts` or `reportUsage` in config.json.")
 
     lumoauth_possible = approvals == "lumoauth" or (approvals == "auto" and can_act)
     if approvals == "lumoauth" and not can_act:
@@ -395,6 +424,9 @@ def _self_test(io: SetupIO, home: GuardHome, data: dict[str, Any]) -> tuple[bool
         except LumoAuthError as exc:
             io.out(f"Self-test: capabilities ..... FAILED ({exc})")
             return False, None
+        if not cfg.get("receipts"):
+            io.out("Self-test: receipt .......... skipped (receipts are off)")
+            return True, granted
         receipt = {"tool": "lumoauth.selftest", "decision": "allowed", "outcome": "succeeded", "duration_ms": 0,
                    "arguments_sha256": arguments_sha256({}), "occurred_at": iso()}
         try:

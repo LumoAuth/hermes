@@ -28,6 +28,7 @@ ON_UNGRANTED = ("ask", "block")
 PRESETS = ("observer", "assistant", "builder")
 
 DEFAULT_TAINT = {"enabled": True, "windowSeconds": 1800, "escalate": ["external"]}
+# Reporting is opt-in (SPEC §3.1): receipts and token usage are sent only when the user said yes.
 DEFAULTS: dict[str, Any] = {
     "preset": "assistant",
     "decisionMode": "local",
@@ -36,11 +37,11 @@ DEFAULTS: dict[str, Any] = {
     "taint": DEFAULT_TAINT,
     "refreshSeconds": 60,
     "offlineGraceSeconds": 300,
-    "receipts": True,
+    "receipts": False,
     "rememberApprovals": True,
     "extraProtectedPaths": [],
     "allowPaths": [],
-    "reportUsage": True,
+    "reportUsage": False,
 }
 REQUIRED = ("baseUrl", "orgId", "agentId", "issuer", "tokenEndpoint", "keyId")
 

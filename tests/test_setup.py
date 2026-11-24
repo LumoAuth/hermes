@@ -43,12 +43,22 @@ def env(tmp_path, monkeypatch):
     return GuardHome(guard), hermes
 
 
-def _run(mock, env, **opts):
+def _run(mock, env, answers=None, **opts):
     home, hermes = env
     lines: list[str] = []
-    io = SetupIO(out=lines.append, ask=lambda _q: "", interactive=False, sleep=lambda _s: None, hermes_home=hermes)
-    options = SetupOptions(url=f"{mock.base}/orgs/{ORG}/portal", yes=True, **opts)
+    replies = iter(answers or [])
+    questions: list[str] = []
+
+    def ask(question: str) -> str:
+        questions.append(question)
+        lines.append(question)
+        return next(replies, "")
+
+    io = SetupIO(out=lines.append, ask=ask, interactive=answers is not None, sleep=lambda _s: None,
+                 hermes_home=hermes)
+    options = SetupOptions(url=f"{mock.base}/orgs/{ORG}/portal", yes=answers is None, **opts)
     code = run_setup(options, io, home)
+    assert answers is not None or questions == [], "a run with --yes asks nothing"
     return code, "\n".join(lines)
 
 
@@ -81,9 +91,35 @@ def test_setup_enrolls_configures_hermes_and_self_tests(mock, env):
     text = (hermes / "config.yaml").read_text(encoding="utf-8")
     assert "# keep this comment" in text and "# My Hermes settings" in text
     assert "lumoauth" in text and "hook_callback_timeout: 180" in text
-    # Self-test receipt.
-    assert mock.state.receipts[0]["tool"] == "lumoauth.selftest"
+    # Reporting is opt-in: --yes says no, so the self-test sends no receipt.
+    assert cfg["receipts"] is False and cfg["reportUsage"] is False
+    assert mock.state.receipts == [] and "receipt .......... skipped (receipts are off)" in output
+    assert "Receipts: off. Token counts: off." in output
     assert "Granted capabilities" in output
+
+
+def test_setup_flags_turn_reporting_on(mock, env):
+    home, _ = env
+    code, output = _run(mock, env, receipts=True, report_usage=True)
+    assert code == 0, output
+    cfg = read_json(home.config_path)
+    assert cfg["receipts"] is True and cfg["reportUsage"] is True
+    assert [r["tool"] for r in mock.state.receipts] == ["lumoauth.selftest"]
+    assert "receipt .......... ok" in output and "Receipts: on. Token counts: on." in output
+
+
+def test_setup_asks_about_reporting_and_the_default_is_no(mock, env):
+    home, _ = env
+    # Preset and approvals take their defaults; then "maybe" is asked again, "y" turns receipts on, and
+    # an empty answer leaves token counts off.
+    code, output = _run(mock, env, answers=["", "", "maybe", "y", ""])
+    assert code == 0, output
+    assert output.count("Send a receipt for each decision to LumoAuth? [y/N]: ") == 2
+    assert "Send the number of tokens to LumoAuth once a minute? [y/N]: " in output
+    assert "The arguments stay on this machine." in output
+    cfg = read_json(home.config_path)
+    assert cfg["receipts"] is True and cfg["reportUsage"] is False
+    assert [r["tool"] for r in mock.state.receipts] == ["lumoauth.selftest"]
 
 
 def test_setup_without_delegation_leaves_hook_timeout(mock, env):
@@ -172,6 +208,7 @@ def test_cli_status_lock_unlock_reset(mock, env, capsys):
     assert cli.main(["status"]) == 0
     text = capsys.readouterr().out
     assert "Granted:" in text and "files:read" in text
+    assert "receipts off, token counts off" in text
     assert cli.main(["lock", "--reason", "away"]) == 0
     assert home.is_locked() and "away" in home.lock_path.read_text()
     assert cli.main(["unlock"]) == 0 and not home.is_locked()
@@ -201,3 +238,6 @@ def test_hermes_cli_registration_builds_the_same_tree():
                               "--approvals", "host", "--yes", "--name", "x"])
     assert (args.lumoauth_command, args.la_preset, args.la_approvals, args.la_yes) == ("setup", "builder", "host",
                                                                                          True)
+    assert (args.la_receipts, args.la_report_usage) == (None, None), "not given: setup asks, or says no with --yes"
+    args = parser.parse_args(["setup", "--receipts", "--no-report-usage"])
+    assert (args.la_receipts, args.la_report_usage) == (True, False)

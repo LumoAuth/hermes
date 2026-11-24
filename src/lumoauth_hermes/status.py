@@ -34,6 +34,7 @@ def gather(home: GuardHome | None = None, *, live: bool = True) -> dict[str, Any
         "preset": cfg.get("preset"), "decisionMode": cfg.decision_mode, "approvals": cfg.approvals,
         "approvalChannel": _channel(cfg), "onUngranted": cfg.get("onUngranted"),
         "taint": cfg.get("taint"), "receiptsEnabled": cfg.get("receipts"),
+        "reportUsage": cfg.get("reportUsage"),
         "configWarnings": cfg.warnings,
     })
     if key is not None and key.kid != cfg.key_id:
@@ -104,6 +105,8 @@ def format_text(data: dict[str, Any]) -> str:
     taint = data.get("taint") or {}
     row("Taint:", f"on, {taint.get('windowSeconds')} s, escalates {', '.join(taint.get('escalate', []))}"
         if taint.get("enabled") else "off")
+    row("Reporting:", f"receipts {'on' if data.get('receiptsEnabled') else 'off'}, "
+                      f"token counts {'on' if data.get('reportUsage') else 'off'}")
     for warning in data.get("configWarnings", []):
         row("Config:", warning)
     conn = data.get("connectivity")

@@ -31,6 +31,11 @@ def build_parser(parser: argparse.ArgumentParser | None = None) -> argparse.Argu
                        help="what the agent may do without asking (default: assistant)")
     setup.add_argument("--approvals", dest="la_approvals", choices=["auto", "lumoauth", "host", "off"],
                        help="where a person approves (default: auto)")
+    setup.add_argument("--receipts", dest="la_receipts", action=argparse.BooleanOptionalAction, default=None,
+                       help="send LumoAuth a receipt for each decision, for its audit log (default: no)")
+    setup.add_argument("--report-usage", dest="la_report_usage", action=argparse.BooleanOptionalAction,
+                       default=None, help="send LumoAuth the number of model tokens that the agent uses, "
+                       "for its token budgets (default: no)")
     setup.add_argument("--name", dest="la_name", help="the agent's name in LumoAuth")
     setup.add_argument("--yes", "-y", dest="la_yes", action="store_true", help="ask nothing; use defaults")
     setup.add_argument("--no-hermes-config", dest="la_no_host_config", action="store_true",
@@ -67,6 +72,7 @@ def handle(args: argparse.Namespace) -> int:
         return run_setup(SetupOptions(
             url=_arg(args, "la_url"), region=_arg(args, "la_region"), org=_arg(args, "la_org"),
             preset=_arg(args, "la_preset"), approvals=_arg(args, "la_approvals"), name=_arg(args, "la_name"),
+            receipts=_arg(args, "la_receipts"), report_usage=_arg(args, "la_report_usage"),
             yes=bool(_arg(args, "la_yes")), host_config=not _arg(args, "la_no_host_config"),
             force=bool(_arg(args, "la_force")),
         ), home=home)
