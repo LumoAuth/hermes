@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.3 — 2026-11-24
+
 Changes asked for in the second review for the Hermes plugin catalog.
 
 - Reporting is opt-in. `receipts` and `reportUsage` default to `false`, and `hermes lumoauth setup` asks about

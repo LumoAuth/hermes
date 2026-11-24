@@ -2,7 +2,7 @@ manifest_version: 2
 api_version: 1
 requires_hermes: ">=0.21.6"
 name: lumoauth
-version: 0.1.2
+version: 0.1.3
 label: LumoAuth Guard
 description: >-
   LumoAuth Guard checks every tool call outside the model: it allows it, asks a person, or blocks it.
